@@ -44,7 +44,8 @@ the classic word processors of the 1980s — particularly WordStar.
 ## Requirements
  
 - [QB64-PE](https://github.com/QB64-Phoenix-Edition/QB64pe) (QB64 Phoenix Edition)
-No external libraries or dependencies required.
+
+To use the source code.
  
 ---
  
