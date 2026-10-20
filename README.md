@@ -60,7 +60,7 @@ No external libraries or dependencies required.
 - [ ] Undo / redo
 - [ ] Find and replace
 - [ ] Word wrap
-- [ ] "Save first?" prompt on New and Quit
+- [x] "Save first?" prompt on New and Quit
 ---
  
 ## Acknowledgements
