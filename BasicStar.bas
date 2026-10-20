@@ -1,5 +1,5 @@
 ' ============================================================
-' QB64 Word Processor
+' BasicStar Word Processor
 ' ============================================================
 ' Controls:
 '   Arrows / Home / End / PgUp / PgDn      - navigation
@@ -15,6 +15,8 @@
 '   Ctrl+N                                  - new document
 '   Ctrl+Q                                  - quit
 ' ============================================================
+
+$EXEICON:'BasicStar.ico'
 
 Const MAXLINES = 5000
 Const SCREENH = 23 ' text display rows (rows 1-23)
@@ -38,7 +40,7 @@ Dim Shared selCol As Integer ' col where selection anchor was set
 ' ---- Initialise ----
 Screen 0
 Width 80, 25
-_Title "QB64 Word Processor"
+_Title "BasicStar Word Processor"
 _FullScreen
 Color 7, 0
 Cls
