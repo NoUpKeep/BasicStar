@@ -1,0 +1,360 @@
+<title>BasicStar</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&display=swap">
+
+<style>
+  /* Layout: single-column, terminal aesthetic, deliberate dark-only */
+  :root {
+    --bg:        #0a0e0a;
+    --bg2:       #0f1a0f;
+    --screen:    #091209;
+    --fg:        #00cc44;
+    --fg-dim:    #006622;
+    --fg-bright: #44ff88;
+    --amber:     #ffaa00;
+    --border:    #1a3a1a;
+    --rule:      #1f3f1f;
+    color-scheme: dark;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: 'Share Tech Mono', 'Courier New', monospace;
+    font-size: 0.95rem;
+    line-height: 1.7;
+    margin: 0;
+    padding-block: max(env(safe-area-inset-top, 0px), 0px) max(env(safe-area-inset-bottom, 0px), 0px);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+
+  /* CRT scanline overlay */
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      to bottom,
+      transparent 0px,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none;
+    z-index: 100;
+  }
+
+  .page {
+    max-width: 800px;
+    margin: 0 auto;
+    padding-block: 3rem 4rem;
+  }
+
+  /* ── Header / Title bar ── */
+  .titlebar {
+    background: var(--fg);
+    color: var(--bg);
+    font-family: 'VT323', monospace;
+    font-size: 1rem;
+    letter-spacing: 0.12em;
+    padding: 0.3rem 0.75rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0;
+  }
+
+  .screen-box {
+    border: 2px solid var(--fg-dim);
+    background: var(--screen);
+    padding: 2.5rem 2rem 2rem;
+    position: relative;
+    box-shadow: 0 0 40px rgba(0,204,68,0.08), inset 0 0 60px rgba(0,0,0,0.4);
+  }
+
+  .blink {
+    animation: blink 1s step-end infinite;
+  }
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0; }
+  }
+
+  h1 {
+    font-family: 'VT323', monospace;
+    font-size: clamp(3rem, 10vw, 5.5rem);
+    line-height: 1;
+    color: var(--fg-bright);
+    margin: 0 0 0.15em;
+    text-shadow: 0 0 20px rgba(68,255,136,0.5);
+    text-wrap: balance;
+    letter-spacing: 0.04em;
+  }
+
+  .tagline {
+    font-size: 1.05rem;
+    color: var(--fg-dim);
+    margin: 0 0 2rem;
+    letter-spacing: 0.06em;
+  }
+
+  .tagline span { color: var(--amber); }
+
+  .badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .badge {
+    font-size: 0.75rem;
+    border: 1px solid var(--fg-dim);
+    padding: 0.15rem 0.5rem;
+    color: var(--fg-dim);
+    letter-spacing: 0.08em;
+  }
+
+  .badge.hi { border-color: var(--fg); color: var(--fg); }
+
+  p { max-width: 60ch; margin: 0 0 1.2rem; }
+
+  /* ── Section headings ── */
+  .section-head {
+    border-top: 1px solid var(--rule);
+    margin-top: 2.5rem;
+    padding-top: 1.5rem;
+  }
+
+  h2 {
+    font-family: 'VT323', monospace;
+    font-size: 1.6rem;
+    color: var(--amber);
+    margin: 0 0 1rem;
+    letter-spacing: 0.1em;
+    text-wrap: balance;
+  }
+
+  /* ── Feature grid ── */
+  .features {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .feature {
+    border: 1px solid var(--border);
+    padding: 0.8rem 0.9rem;
+    background: var(--bg2);
+  }
+
+  .feature::before {
+    content: "► ";
+    color: var(--amber);
+  }
+
+  /* ── Keys table ── */
+  .keys {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .keys th {
+    text-align: left;
+    padding: 0.35rem 0.6rem;
+    background: var(--bg2);
+    color: var(--amber);
+    border-bottom: 1px solid var(--rule);
+    letter-spacing: 0.08em;
+    font-weight: normal;
+  }
+
+  .keys td {
+    padding: 0.3rem 0.6rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--fg-dim);
+  }
+
+  .keys td:first-child {
+    color: var(--fg-bright);
+    white-space: nowrap;
+  }
+
+  .keys tr:last-child td { border-bottom: none; }
+
+  /* ── CTA buttons ── */
+  .cta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-top: 2.5rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--rule);
+  }
+
+  .btn {
+    display: inline-block;
+    font-family: 'VT323', monospace;
+    font-size: 1.3rem;
+    letter-spacing: 0.1em;
+    padding: 0.4rem 1.4rem;
+    border: 2px solid var(--fg);
+    color: var(--fg-bright);
+    background: transparent;
+    text-decoration: none;
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .btn:hover, .btn:focus {
+    background: var(--fg);
+    color: var(--bg);
+    outline: none;
+  }
+
+  .btn.secondary {
+    border-color: var(--fg-dim);
+    color: var(--fg-dim);
+  }
+
+  .btn.secondary:hover, .btn.secondary:focus {
+    background: var(--fg-dim);
+    color: var(--bg);
+  }
+
+  /* ── Footer ── */
+  footer {
+    margin-top: 3rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.78rem;
+    color: var(--fg-dim);
+    letter-spacing: 0.05em;
+  }
+
+  footer a { color: var(--fg-dim); }
+  footer a:hover { color: var(--fg); }
+
+  .status-bar {
+    background: var(--fg);
+    color: var(--bg);
+    padding: 0.2rem 0.75rem;
+    font-size: 0.8rem;
+    letter-spacing: 0.06em;
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 2.5rem;
+  }
+
+  @media (max-width: 500px) {
+    .screen-box { padding: 1.5rem 1rem; }
+    .keys th, .keys td { padding: 0.3rem 0.4rem; font-size: 0.8rem; }
+  }
+</style>
+
+<div class="page">
+
+  <div class="titlebar">
+    <span> BASICSTAR WORD PROCESSOR </span>
+    <span>QB64-PE</span>
+  </div>
+
+  <div class="screen-box">
+
+    <h1>BasicStar<span class="blink">_</span></h1>
+    <p class="tagline">A full-screen word processor for <span>QB64-PE</span>, inspired by the classics of the 1980s.</p>
+
+    <div class="badges">
+      <span class="badge hi">QB64-PE</span>
+      <span class="badge">Windows</span>
+      <span class="badge">Linux</span>
+      <span class="badge">macOS</span>
+      <span class="badge">Public Domain</span>
+    </div>
+
+    <p>
+      BasicStar brings back the feel of early word processors — the kind that ran
+      on machines you could actually understand. It runs in 80×25 text mode,
+      edits plain text files, and gets out of your way. Named in tribute to
+      WordStar and written entirely in BASIC.
+    </p>
+
+    <!-- Features -->
+    <div class="section-head">
+      <h2>// FEATURES</h2>
+    </div>
+    <div class="features">
+      <div class="feature">Full-screen 80×25 text mode</div>
+      <div class="feature">Shift+Arrow text selection</div>
+      <div class="feature">Cut, copy &amp; paste</div>
+      <div class="feature">Save &amp; open plain text files</div>
+      <div class="feature">Unsaved changes indicator</div>
+      <div class="feature">Line &amp; column display</div>
+      <div class="feature">Up to 5,000 lines per document</div>
+      <div class="feature">No external dependencies</div>
+    </div>
+
+    <!-- Controls -->
+    <div class="section-head">
+      <h2>// KEYBOARD REFERENCE</h2>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="keys">
+        <tr><th>Key</th><th>Action</th></tr>
+        <tr><td>Arrow keys</td><td>Move cursor</td></tr>
+        <tr><td>Home / End</td><td>Start / end of line</td></tr>
+        <tr><td>Page Up / Down</td><td>Scroll by screen</td></tr>
+        <tr><td>Shift + Arrow</td><td>Select text</td></tr>
+        <tr><td>Escape</td><td>Cancel selection</td></tr>
+        <tr><td>Backspace / Delete</td><td>Delete character or selection; join lines</td></tr>
+        <tr><td>Enter</td><td>New line</td></tr>
+        <tr><td>Ctrl+C</td><td>Copy selection</td></tr>
+        <tr><td>Ctrl+X</td><td>Cut selection</td></tr>
+        <tr><td>Ctrl+V</td><td>Paste</td></tr>
+        <tr><td>Ctrl+S</td><td>Save</td></tr>
+        <tr><td>Ctrl+O</td><td>Open file</td></tr>
+        <tr><td>Ctrl+N</td><td>New document</td></tr>
+        <tr><td>Ctrl+Q</td><td>Quit</td></tr>
+      </table>
+    </div>
+
+    <!-- Getting started -->
+    <div class="section-head">
+      <h2>// GETTING STARTED</h2>
+    </div>
+    <p>
+      1. Download <strong>BasicStar.bas</strong> from the repository.<br>
+      2. Open it in <a href="https://github.com/QB64-Phoenix-Edition/QB64pe" target="_blank" rel="noopener">QB64-PE</a>.<br>
+      3. Press <strong>F5</strong> to compile and run.
+    </p>
+    <p>No libraries, no dependencies. Just BASIC.</p>
+
+    <!-- CTAs -->
+    <div class="cta-row">
+      <a class="btn" href="https://github.com/NoUpKeep/BasicStar/raw/main/BasicStar.bas" target="_blank" rel="noopener">[ DOWNLOAD .BAS ]</a>
+      <a class="btn secondary" href="https://github.com/NoUpKeep/BasicStar" target="_blank" rel="noopener">[ VIEW ON GITHUB ]</a>
+    </div>
+
+    <div class="status-bar">
+      <span>basicstar.bas  *</span>
+      <span>Ln 1  Co 1</span>
+      <span>^S Save  ^O Open  ^N New  ^Q Quit</span>
+    </div>
+
+  </div><!-- /screen-box -->
+
+  <footer>
+    <p>
+      Developed in collaboration with <a href="https://www.anthropic.com" target="_blank" rel="noopener">Claude</a> by Anthropic. &nbsp;|&nbsp;
+      Released into the public domain. Do with it as you will.
+    </p>
+  </footer>
+
+</div>
