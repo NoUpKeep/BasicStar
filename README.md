@@ -2,6 +2,8 @@
  
 A full-screen plain-text word processor written in QB64-PE, inspired by
 the classic word processors of the 1980s — particularly WordStar.
+
+[BasicStar Website](https://noupkeep.github.io/BasicStar/ "BasicStar Website")
  
 ![Language](https://img.shields.io/badge/language-QB64--PE-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
@@ -34,6 +36,8 @@ the classic word processors of the 1980s — particularly WordStar.
 | Ctrl+C | Copy selection |
 | Ctrl+X | Cut selection |
 | Ctrl+V | Paste |
+| Ctrl+Z | Undo |
+| Ctrl+Y | Redo |
 | Ctrl+S | Save |
 | Ctrl+O | Open |
 | Ctrl+N | New document |
@@ -73,4 +77,3 @@ Developed in collaboration with [Claude](https://www.anthropic.com) by Anthropic
 ## Licence
  
 This project is released into the public domain. Do with it as you will.
- 
