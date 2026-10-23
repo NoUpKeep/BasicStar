@@ -10,17 +10,20 @@
 '   Ctrl+C                                  - copy selection
 '   Ctrl+X                                  - cut selection
 '   Ctrl+V                                  - paste
+'   Ctrl+Z                                  - undo
+'   Ctrl+Y                                  - redo
 '   Ctrl+S                                  - save
 '   Ctrl+O                                  - open
 '   Ctrl+N                                  - new document
 '   Ctrl+Q                                  - quit
 ' ============================================================
 
-$EXEICON:'BasicStar.ico'
+$ExeIcon:'BasicStar.ico'
 
 Const MAXLINES = 5000
-Const SCREENH = 23 ' text display rows (rows 1-23)
+Const SCREENH = 22 ' text display rows (rows 1-22)
 Const SCREENW = 80 ' display columns
+Const MAXUNDO = 30 ' undo/redo stack depth
 
 Dim Shared lines$(1 To MAXLINES)
 Dim Shared lineCount As Integer
@@ -30,12 +33,35 @@ Dim Shared topLine As Integer
 Dim Shared docFile$
 Dim Shared dirty As Integer ' -1 = unsaved changes
 Dim Shared statusMsg$ ' message shown on row 25
+Dim Shared discardOK As Integer ' set by ConfirmDiscard SUB
 
 ' ---- Clipboard / selection ----
 Dim Shared clipboard$ ' internal clipboard (newlines stored as CHR$(10))
 Dim Shared selActive As Integer ' -1 = selection is active
 Dim Shared selRow As Integer ' row where selection anchor was set
 Dim Shared selCol As Integer ' col where selection anchor was set
+
+' ---- Undo stack ----
+' Each record saves the state of a range of lines BEFORE an edit.
+' undoToRow() is the last row in that saved range.
+' The corresponding "after" last row = undoToRow + (currentLineCount - undoLineCount).
+Dim Shared undoTop As Integer
+Dim Shared undoSuspend As Integer ' when -1, PushUndoRange is a no-op
+Dim Shared undoFromRow(1 To MAXUNDO) As Integer
+Dim Shared undoToRow(1 To MAXUNDO) As Integer
+Dim Shared undoContent$(1 To MAXUNDO)
+Dim Shared undoLineCount(1 To MAXUNDO) As Integer
+Dim Shared undoCurRow(1 To MAXUNDO) As Integer
+Dim Shared undoCurCol(1 To MAXUNDO) As Integer
+
+' ---- Redo stack (same structure as undo) ----
+Dim Shared redoTop As Integer
+Dim Shared redoFromRow(1 To MAXUNDO) As Integer
+Dim Shared redoToRow(1 To MAXUNDO) As Integer
+Dim Shared redoContent$(1 To MAXUNDO)
+Dim Shared redoLineCount(1 To MAXUNDO) As Integer
+Dim Shared redoCurRow(1 To MAXUNDO) As Integer
+Dim Shared redoCurCol(1 To MAXUNDO) As Integer
 
 ' ---- Initialise ----
 Screen 0
@@ -57,6 +83,9 @@ clipboard$ = ""
 selActive = 0
 selRow = 0
 selCol = 0
+undoTop = 0
+undoSuspend = 0
+redoTop = 0
 
 DrawScreen
 Locate curRow - topLine + 1, curCol
@@ -68,6 +97,7 @@ Dim running As Integer
 Dim k As Long
 Dim ctrlHeld As Integer
 Dim shiftHeld As Integer
+Dim okAction As Integer
 
 running = -1
 
@@ -203,10 +233,16 @@ Do While running
                             Case Asc("c"), Asc("C"): CopySelection
                             Case Asc("x"), Asc("X"): CutSelection
                             Case Asc("v"), Asc("V"): PasteClipboard
+                            Case Asc("z"), Asc("Z"): DoUndo
+                            Case Asc("y"), Asc("Y"): DoRedo
                             Case Asc("s"), Asc("S"): DoSave
                             Case Asc("o"), Asc("O"): DoOpen
-                            Case Asc("n"), Asc("N"): DoNew
-                            Case Asc("q"), Asc("Q"): running = 0
+                            Case Asc("n"), Asc("N")
+                                ConfirmDiscard
+                                If discardOK Then DoNew
+                            Case Asc("q"), Asc("Q")
+                                ConfirmDiscard
+                                If discardOK Then running = 0
                         End Select
                     Else
                         If selActive Then DeleteSelection
@@ -228,8 +264,255 @@ Loop
 System
 
 ' ============================================================
+' SUB: PushUndoRange
+' Save the content of lines(fromRow..toRow) onto the undo stack
+' before an edit operation.  Clears the redo stack.
+' No-op when undoSuspend is set (used during paste).
+' ============================================================
+Sub PushUndoRange (fromRow As Integer, toRow As Integer)
+    Dim i As Integer
+    Dim content As String
+
+    If undoSuspend Then Exit Sub
+
+    ' Shift stack down if full (oldest entry lost)
+    If undoTop >= MAXUNDO Then
+        For i = 1 To MAXUNDO - 1
+            undoFromRow(i) = undoFromRow(i + 1)
+            undoToRow(i) = undoToRow(i + 1)
+            undoContent$(i) = undoContent$(i + 1)
+            undoLineCount(i) = undoLineCount(i + 1)
+            undoCurRow(i) = undoCurRow(i + 1)
+            undoCurCol(i) = undoCurCol(i + 1)
+        Next i
+        undoTop = MAXUNDO - 1
+    End If
+
+    undoTop = undoTop + 1
+    undoFromRow(undoTop) = fromRow
+    undoToRow(undoTop) = toRow
+    undoLineCount(undoTop) = lineCount
+    undoCurRow(undoTop) = curRow
+    undoCurCol(undoTop) = curCol
+
+    ' Build content string: lines joined by CHR$(10)
+    content = ""
+    For i = fromRow To toRow
+        If i > fromRow Then content = content + Chr$(10)
+        If i >= 1 And i <= lineCount Then
+            content = content + lines$(i)
+        End If
+    Next i
+    undoContent$(undoTop) = content
+
+    ' New edit invalidates redo history
+    redoTop = 0
+End Sub
+
+' ============================================================
+' SUB: PushRedoRange
+' Save the content of lines(fromRow..toRow) onto the redo stack.
+' Called by DoUndo before it restores the before-state.
+' ============================================================
+Sub PushRedoRange (fromRow As Integer, toRow As Integer, savedCR As Integer, savedCC As Integer)
+    Dim i As Integer
+    Dim content As String
+
+    If redoTop >= MAXUNDO Then
+        For i = 1 To MAXUNDO - 1
+            redoFromRow(i) = redoFromRow(i + 1)
+            redoToRow(i) = redoToRow(i + 1)
+            redoContent$(i) = redoContent$(i + 1)
+            redoLineCount(i) = redoLineCount(i + 1)
+            redoCurRow(i) = redoCurRow(i + 1)
+            redoCurCol(i) = redoCurCol(i + 1)
+        Next i
+        redoTop = MAXUNDO - 1
+    End If
+
+    redoTop = redoTop + 1
+    redoFromRow(redoTop) = fromRow
+    redoToRow(redoTop) = toRow
+    redoLineCount(redoTop) = lineCount
+    redoCurRow(redoTop) = savedCR
+    redoCurCol(redoTop) = savedCC
+
+    content = ""
+    For i = fromRow To toRow
+        If i > fromRow Then content = content + Chr$(10)
+        If i >= 1 And i <= lineCount Then
+            content = content + lines$(i)
+        End If
+    Next i
+    redoContent$(redoTop) = content
+End Sub
+
+' ============================================================
+' SUB: RestoreRange
+' Replace the current lines [fromRow..oldToRow] with the
+' content stored in newContent (covering fromRow..newToRow).
+' Adjusts lineCount and repositions the cursor.
+' ============================================================
+Sub RestoreRange (fromRow As Integer, oldToRow As Integer, newToRow As Integer, newContent As String, newLC As Integer, newCR As Integer, newCC As Integer)
+    Dim i As Integer
+    Dim j As Integer
+    Dim p As Integer
+    Dim nextP As Integer
+    Dim oldRangeLen As Integer
+    Dim newRangeLen As Integer
+    Dim delta As Integer
+
+    oldRangeLen = oldToRow - fromRow + 1
+    newRangeLen = newToRow - fromRow + 1
+    delta = newRangeLen - oldRangeLen
+
+    If delta > 0 Then
+        ' Expanding: shift rows after oldToRow down by delta
+        For i = lineCount To oldToRow + 1 Step -1
+            If i + delta <= MAXLINES Then
+                lines$(i + delta) = lines$(i)
+            End If
+        Next i
+    ElseIf delta < 0 Then
+        ' Contracting: shift rows after oldToRow up by |delta|
+        For i = oldToRow + 1 To lineCount
+            If i + delta >= 1 Then
+                lines$(i + delta) = lines$(i)
+            End If
+        Next i
+        ' Clear vacated slots at the bottom
+        For i = lineCount + delta + 1 To lineCount
+            lines$(i) = ""
+        Next i
+    End If
+
+    ' Write newContent into [fromRow..newToRow]
+    j = fromRow
+    If Len(newContent) = 0 Then
+        lines$(fromRow) = ""
+    Else
+        p = 1
+        Do While p <= Len(newContent) And j <= newToRow
+            nextP = InStr(p, newContent, Chr$(10))
+            If nextP = 0 Then
+                lines$(j) = Mid$(newContent, p)
+                j = j + 1
+                p = Len(newContent) + 1
+            Else
+                lines$(j) = Mid$(newContent, p, nextP - p)
+                j = j + 1
+                p = nextP + 1
+            End If
+        Loop
+    End If
+
+    lineCount = newLC
+    curRow = newCR
+    curCol = newCC
+    If curRow < 1 Then curRow = 1
+    If curRow > lineCount Then curRow = lineCount
+    If curCol < 1 Then curCol = 1
+    If curRow < topLine Then topLine = curRow
+    If curRow > topLine + SCREENH - 1 Then topLine = curRow - SCREENH + 1
+    If topLine < 1 Then topLine = 1
+End Sub
+
+' ============================================================
+' SUB: DoUndo  (Ctrl+Z)
+' ============================================================
+Sub DoUndo ()
+    Dim fromRow As Integer
+    Dim savedToRow As Integer
+    Dim currToRow As Integer
+    Dim savedLC As Integer
+
+    If undoTop = 0 Then
+        statusMsg$ = "Nothing to undo."
+        Exit Sub
+    End If
+
+    fromRow = undoFromRow(undoTop)
+    savedToRow = undoToRow(undoTop)
+    savedLC = undoLineCount(undoTop)
+
+    ' Current "after" last row (derived from the change in lineCount)
+    currToRow = savedToRow + (lineCount - savedLC)
+
+    ' Save the current (after) state onto the redo stack so Ctrl+Y works.
+    ' The cursor position to restore on redo is the current cursor.
+    PushRedoRange fromRow, currToRow, curRow, curCol
+
+    ' Restore the before-state
+    RestoreRange fromRow, currToRow, savedToRow, undoContent$(undoTop), savedLC, undoCurRow(undoTop), undoCurCol(undoTop)
+
+    dirty = -1
+    undoTop = undoTop - 1
+    statusMsg$ = "Undo."
+End Sub
+
+' ============================================================
+' SUB: DoRedo  (Ctrl+Y)
+' ============================================================
+Sub DoRedo ()
+    Dim fromRow As Integer
+    Dim savedToRow As Integer
+    Dim currToRow As Integer
+    Dim savedLC As Integer
+
+    If redoTop = 0 Then
+        statusMsg$ = "Nothing to redo."
+        Exit Sub
+    End If
+
+    fromRow = redoFromRow(redoTop)
+    savedToRow = redoToRow(redoTop)
+    savedLC = redoLineCount(redoTop)
+
+    ' Current "before" last row
+    currToRow = savedToRow + (lineCount - savedLC)
+
+    ' Push current state back onto undo stack (so Ctrl+Z still works after Ctrl+Y)
+    ' We bypass PushUndoRange to avoid clearing the redo stack mid-replay.
+    If undoTop < MAXUNDO Then
+        undoTop = undoTop + 1
+    Else
+        Dim i As Integer
+        For i = 1 To MAXUNDO - 1
+            undoFromRow(i) = undoFromRow(i + 1)
+            undoToRow(i) = undoToRow(i + 1)
+            undoContent$(i) = undoContent$(i + 1)
+            undoLineCount(i) = undoLineCount(i + 1)
+            undoCurRow(i) = undoCurRow(i + 1)
+            undoCurCol(i) = undoCurCol(i + 1)
+        Next i
+        undoTop = MAXUNDO
+    End If
+
+    Dim content As String
+    Dim j As Integer
+    content = ""
+    For j = fromRow To currToRow
+        If j > fromRow Then content = content + Chr$(10)
+        If j >= 1 And j <= lineCount Then content = content + lines$(j)
+    Next j
+
+    undoFromRow(undoTop) = fromRow
+    undoToRow(undoTop) = currToRow
+    undoContent$(undoTop) = content
+    undoLineCount(undoTop) = lineCount
+    undoCurRow(undoTop) = curRow
+    undoCurCol(undoTop) = curCol
+
+    ' Restore the redo (after) state
+    RestoreRange fromRow, currToRow, savedToRow, redoContent$(redoTop), savedLC, redoCurRow(redoTop), redoCurCol(redoTop)
+
+    dirty = -1
+    redoTop = redoTop - 1
+    statusMsg$ = "Redo."
+End Sub
+
+' ============================================================
 ' SUB: SetAnchor
-' Mark the current cursor position as the selection start
 ' ============================================================
 Sub SetAnchor ()
     selActive = -1
@@ -239,7 +522,6 @@ End Sub
 
 ' ============================================================
 ' SUB: ClearSel
-' Cancel any active selection
 ' ============================================================
 Sub ClearSel ()
     selActive = 0
@@ -249,8 +531,6 @@ End Sub
 
 ' ============================================================
 ' FUNCTION: SelStartRow / SelStartCol / SelEndRow / SelEndCol
-' Return the normalised start and end of the selection
-' (anchor may be after the cursor, so we always sort them)
 ' ============================================================
 Function SelStartRow ()
     If selRow < curRow Then SelStartRow = selRow
@@ -286,8 +566,6 @@ End Function
 
 ' ============================================================
 ' SUB: CopySelection
-' Copy selected text into clipboard$
-' Lines are joined with CHR$(10) as a newline marker
 ' ============================================================
 Sub CopySelection ()
     Dim sR As Integer, sC As Integer
@@ -305,16 +583,12 @@ Sub CopySelection ()
     clipboard$ = ""
 
     If sR = eR Then
-        ' Single line selection
         clipboard$ = Mid$(lines$(sR), sC, eC - sC)
     Else
-        ' Multi-line: first partial line
         clipboard$ = Mid$(lines$(sR), sC)
-        ' Middle lines (complete)
         For i = sR + 1 To eR - 1
             clipboard$ = clipboard$ + Chr$(10) + lines$(i)
         Next i
-        ' Last partial line
         clipboard$ = clipboard$ + Chr$(10) + Left$(lines$(eR), eC - 1)
     End If
 
@@ -323,40 +597,41 @@ End Sub
 
 ' ============================================================
 ' SUB: DeleteSelection
-' Remove the selected text from the buffer.
-' Leaves cursor at the start of the deleted range.
 ' ============================================================
 Sub DeleteSelection ()
     Dim sR As Integer, sC As Integer
     Dim eR As Integer, eC As Integer
-    Dim id As Integer
+    Dim i As Integer
 
     If Not selActive Then Exit Sub
 
     sR = SelStartRow: sC = SelStartCol
     eR = SelEndRow: eC = SelEndCol
 
+    ' Save undo record before modifying
+    PushUndoRange sR, eR
+
     If sR = eR Then
-        ' Single line: just snip out the middle
         lines$(sR) = Left$(lines$(sR), sC - 1) + Mid$(lines$(sR), eC)
     Else
-        ' Multi-line: join first line's left with last line's right
         lines$(sR) = Left$(lines$(sR), sC - 1) + Mid$(lines$(eR), eC)
-        ' Remove lines sR+1 through eR by shifting up
-        For id = sR + 1 To lineCount - (eR - sR)
+        For i = sR + 1 To lineCount - (eR - sR)
             lines$(i) = lines$(i + (eR - sR))
-        Next id
-        ' Blank the vacated slots at the bottom
-        For id = lineCount - (eR - sR) + 1 To lineCount
-            lines$(id) = ""
-        Next id
+        Next i
+        For i = lineCount - (eR - sR) + 1 To lineCount
+            lines$(i) = ""
+        Next i
         lineCount = lineCount - (eR - sR)
     End If
 
-    ' Place cursor at start of deleted range
     curRow = sR
     curCol = sC
     If curRow < topLine Then topLine = curRow
+
+    ' Record final lineCount into the undo entry
+    If undoTop > 0 And Not undoSuspend Then
+        undoLineCount(undoTop) = lineCount
+    End If
 
     ClearSel
     dirty = -1
@@ -364,7 +639,6 @@ End Sub
 
 ' ============================================================
 ' SUB: CutSelection
-' Copy then delete the selection
 ' ============================================================
 Sub CutSelection ()
     If Not selActive Then
@@ -378,28 +652,34 @@ End Sub
 
 ' ============================================================
 ' SUB: PasteClipboard
-' Insert clipboard$ at the cursor position.
-' CHR$(10) in the clipboard becomes a new line.
 ' ============================================================
 Sub PasteClipboard ()
-    Dim ipaste As Integer
+    Dim idx As Integer
     Dim ch As String
-    Dim position As Integer
 
     If clipboard$ = "" Then
         statusMsg$ = "Clipboard is empty."
         Exit Sub
     End If
 
-    ' Insert one character/newline at a time
-    For position = 1 To Len(clipboard$)
-        ch = Mid$(clipboard$, position, 1)
+    ' One undo record for the whole paste operation
+    PushUndoRange curRow, curRow
+    undoSuspend = -1
+
+    For idx = 1 To Len(clipboard$)
+        ch = Mid$(clipboard$, idx, 1)
         If ch = Chr$(10) Then
             HandleEnter
         Else
             InsertChar ch
         End If
-    Next position
+    Next idx
+
+    undoSuspend = 0
+    ' Record final state into the undo entry
+    If undoTop > 0 Then
+        undoLineCount(undoTop) = lineCount
+    End If
 
     dirty = -1
     statusMsg$ = "Pasted."
@@ -407,11 +687,14 @@ End Sub
 
 ' ============================================================
 ' SUB: InsertChar
-' Insert a single character at the cursor position
 ' ============================================================
 Sub InsertChar (ch$)
+    PushUndoRange curRow, curRow
     lines$(curRow) = Left$(lines$(curRow), curCol - 1) + ch$ + Mid$(lines$(curRow), curCol)
     curCol = curCol + 1
+    If undoTop > 0 And Not undoSuspend Then
+        undoLineCount(undoTop) = lineCount
+    End If
     dirty = -1
 End Sub
 
@@ -426,6 +709,8 @@ Sub HandleEnter ()
         statusMsg$ = "Document full - cannot add more lines."
         Exit Sub
     End If
+
+    PushUndoRange curRow, curRow
 
     rightPart = Mid$(lines$(curRow), curCol)
     lines$(curRow) = Left$(lines$(curRow), curCol - 1)
@@ -443,6 +728,9 @@ Sub HandleEnter ()
         topLine = curRow - SCREENH + 1
     End If
 
+    If undoTop > 0 And Not undoSuspend Then
+        undoLineCount(undoTop) = lineCount
+    End If
     dirty = -1
 End Sub
 
@@ -454,9 +742,11 @@ Sub HandleBackspace ()
     Dim i As Integer
 
     If curCol > 1 Then
+        PushUndoRange curRow, curRow
         lines$(curRow) = Left$(lines$(curRow), curCol - 2) + Mid$(lines$(curRow), curCol)
         curCol = curCol - 1
     ElseIf curRow > 1 Then
+        PushUndoRange curRow - 1, curRow
         prevLen = Len(lines$(curRow - 1))
         lines$(curRow - 1) = lines$(curRow - 1) + lines$(curRow)
         For i = curRow To lineCount - 1
@@ -469,6 +759,9 @@ Sub HandleBackspace ()
         If curRow < topLine Then topLine = curRow
     End If
 
+    If undoTop > 0 And Not undoSuspend Then
+        undoLineCount(undoTop) = lineCount
+    End If
     dirty = -1
 End Sub
 
@@ -479,8 +772,10 @@ Sub HandleDelete ()
     Dim i As Integer
 
     If curCol <= Len(lines$(curRow)) Then
+        PushUndoRange curRow, curRow
         lines$(curRow) = Left$(lines$(curRow), curCol - 1) + Mid$(lines$(curRow), curCol + 1)
     ElseIf curRow < lineCount Then
+        PushUndoRange curRow, curRow + 1
         lines$(curRow) = lines$(curRow) + lines$(curRow + 1)
         For i = curRow + 1 To lineCount - 1
             lines$(i) = lines$(i + 1)
@@ -489,6 +784,9 @@ Sub HandleDelete ()
         lineCount = lineCount - 1
     End If
 
+    If undoTop > 0 And Not undoSuspend Then
+        undoLineCount(undoTop) = lineCount
+    End If
     dirty = -1
 End Sub
 
@@ -504,8 +802,6 @@ End Sub
 
 ' ============================================================
 ' SUB: DrawScreen
-' Redraw the visible text area and status bars.
-' Selected text is shown in reverse colour.
 ' ============================================================
 Sub DrawScreen ()
     Dim i As Integer
@@ -517,7 +813,7 @@ Sub DrawScreen ()
     Dim sC As Integer
     Dim eR As Integer
     Dim eC As Integer
-    Dim c As Integer ' column counter for highlight
+    Dim c As Integer
 
     If selActive Then
         sR = SelStartRow: sC = SelStartCol
@@ -536,7 +832,6 @@ Sub DrawScreen ()
         End If
 
         If selActive And i >= sR And i <= eR Then
-            ' Draw character by character to apply highlight
             For c = 1 To SCREENW
                 Dim ch As String
                 If c <= Len(ln) Then ch = Mid$(ln, c, 1) Else ch = " "
@@ -554,9 +849,9 @@ Sub DrawScreen ()
                 End If
 
                 If inSel Then
-                    Color 0, 7 ' reverse: black on white
+                    Color 0, 7
                 Else
-                    Color 7, 0 ' normal
+                    Color 7, 0
                 End If
                 Print ch;
             Next c
@@ -567,14 +862,17 @@ Sub DrawScreen ()
         End If
     Next i
 
-    ' ---- Row 24: Status bar ----
+    ' ---- Row 23: File info bar ----
     Color 0, 7
-    Locate 24, 1
+    Locate 23, 1
     If docFile$ = "" Then fileLabel = "[untitled]" Else fileLabel = docFile$
     If dirty Then fileLabel = fileLabel + " *"
-bar = " " + fileLabel + "  Ln:" + LTRIM$(STR$(curRow)) + "  Co:" + LTRIM$(STR$(curCol)) _
-    + "  | ^S=Save ^O=Open ^N=New ^C/X/V ^Q=Quit"
+    bar = " " + fileLabel + "  Ln:" + LTrim$(Str$(curRow)) + "  Co:" + LTrim$(Str$(curCol))
     Print Left$(bar + Space$(SCREENW), SCREENW);
+
+    ' ---- Row 24: Shortcut bar ----
+    Locate 24, 1
+    Print Left$("  ^S=Save  ^O=Open  ^N=New  ^Q=Quit  ^Z=Undo  ^Y=Redo  ^X=Cut  ^V=Paste" + Space$(SCREENW), SCREENW);
     Color 7, 0
 
     ' ---- Row 25: Message line ----
@@ -583,6 +881,40 @@ bar = " " + fileLabel + "  Ln:" + LTRIM$(STR$(curRow)) + "  Co:" + LTRIM$(STR$(c
     Print Left$(statusMsg$ + Space$(SCREENW), SCREENW);
     Color 7, 0
 
+End Sub
+
+' ============================================================
+' SUB: ConfirmDiscard
+' ============================================================
+Sub ConfirmDiscard ()
+    Dim k As Long
+
+    If Not dirty Then
+        discardOK = -1
+        Exit Sub
+    End If
+
+    Locate 25, 1
+    Color 0, 7
+    Print Left$("  Unsaved changes. Save first? (Y)es  (N)o  (C)ancel  " + Space$(SCREENW), SCREENW);
+    Color 7, 0
+
+    Do
+        k = _KeyHit
+        If k = Asc("y") Or k = Asc("Y") Then
+            DoSave
+            discardOK = -1
+            Exit Sub
+        ElseIf k = Asc("n") Or k = Asc("N") Then
+            discardOK = -1
+            Exit Sub
+        ElseIf k = Asc("c") Or k = Asc("C") Or k = 27 Then
+            statusMsg$ = "Cancelled."
+            discardOK = 0
+            Exit Sub
+        End If
+        _Limit 60
+    Loop
 End Sub
 
 ' ============================================================
@@ -665,6 +997,9 @@ Sub DoOpen ()
     curCol = 1
     topLine = 1
     dirty = 0
+    ' Clear undo/redo history when a new file is loaded
+    undoTop = 0
+    redoTop = 0
     statusMsg$ = "Opened: " + docFile$
 End Sub
 
@@ -684,6 +1019,9 @@ Sub DoNew ()
     topLine = 1
     docFile$ = ""
     dirty = 0
+    ' Clear undo/redo history for the new document
+    undoTop = 0
+    redoTop = 0
     statusMsg$ = "New document."
     ClearSel
 End Sub
