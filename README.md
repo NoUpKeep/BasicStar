@@ -58,7 +58,7 @@ To use the source code.
  
 ## Roadmap
  
-- [ ] Undo / redo
+- [x] Undo / redo
 - [ ] Find and replace
 - [ ] Word wrap
 - [x] "Save first?" prompt on New and Quit
