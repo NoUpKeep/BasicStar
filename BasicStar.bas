@@ -12,6 +12,7 @@
 '   Ctrl+V                                  - paste
 '   Ctrl+Z                                  - undo
 '   Ctrl+Y                                  - redo
+'   Ctrl+W                                  - toggle word wrap
 '   Ctrl+S                                  - save
 '   Ctrl+O                                  - open
 '   Ctrl+N                                  - new document
@@ -63,6 +64,10 @@ Dim Shared redoLineCount(1 To MAXUNDO) As Integer
 Dim Shared redoCurRow(1 To MAXUNDO) As Integer
 Dim Shared redoCurCol(1 To MAXUNDO) As Integer
 
+' ---- Word wrap ----
+Dim Shared wrapMode As Integer ' -1 = on, 0 = off
+Dim Shared wrapCol As Integer ' right margin column
+
 ' ---- Initialise ----
 Screen 0
 Width 80, 25
@@ -86,6 +91,8 @@ selCol = 0
 undoTop = 0
 undoSuspend = 0
 redoTop = 0
+wrapMode = 0
+wrapCol = SCREENW - 1 ' wrap before the right edge (col 79)
 
 DrawScreen
 Locate curRow - topLine + 1, curCol
@@ -98,6 +105,7 @@ Dim k As Long
 Dim ctrlHeld As Integer
 Dim shiftHeld As Integer
 Dim okAction As Integer
+Dim locCol As Integer
 
 running = -1
 
@@ -235,6 +243,13 @@ Do While running
                             Case Asc("v"), Asc("V"): PasteClipboard
                             Case Asc("z"), Asc("Z"): DoUndo
                             Case Asc("y"), Asc("Y"): DoRedo
+                            Case Asc("w"), Asc("W")
+                                wrapMode = Not wrapMode
+                                If wrapMode Then
+                                    statusMsg$ = "Word wrap ON (col " + LTrim$(Str$(wrapCol)) + ")"
+                                Else
+                                    statusMsg$ = "Word wrap OFF"
+                                End If
                             Case Asc("s"), Asc("S"): DoSave
                             Case Asc("o"), Asc("O"): DoOpen
                             Case Asc("n"), Asc("N")
@@ -253,7 +268,9 @@ Do While running
         End Select
 
         DrawScreen
-        Locate curRow - topLine + 1, curCol
+        locCol = curCol
+        If locCol > SCREENW Then locCol = SCREENW
+        Locate curRow - topLine + 1, locCol
 
     End If
 
@@ -689,9 +706,16 @@ End Sub
 ' SUB: InsertChar
 ' ============================================================
 Sub InsertChar (ch$)
-    PushUndoRange curRow, curRow
+    ' When wrap mode is on, save the line below too — DoWordWrap may push
+    ' content there, and undo needs both lines to correctly restore.
+    If wrapMode Then
+        PushUndoRange curRow, curRow + 1
+    Else
+        PushUndoRange curRow, curRow
+    End If
     lines$(curRow) = Left$(lines$(curRow), curCol - 1) + ch$ + Mid$(lines$(curRow), curCol)
     curCol = curCol + 1
+    If wrapMode Then DoWordWrap
     If undoTop > 0 And Not undoSuspend Then
         undoLineCount(undoTop) = lineCount
     End If
@@ -791,6 +815,57 @@ Sub HandleDelete ()
 End Sub
 
 ' ============================================================
+' SUB: DoWordWrap
+' Called after InsertChar when word wrap is enabled.
+' If the current line exceeds wrapCol, finds the last space
+' at or before wrapCol and wraps the tail to the next line.
+' ============================================================
+Sub DoWordWrap ()
+    Dim spPos As Integer
+    Dim i As Integer
+    Dim j As Integer
+    Dim rightPart As String
+
+    ' Nothing to do if line fits within the margin
+    If Len(lines$(curRow)) <= wrapCol Then Exit Sub
+
+    ' Find the last space at or before wrapCol
+    spPos = 0
+    For i = wrapCol To 1 Step -1
+        If Mid$(lines$(curRow), i, 1) = " " Then
+            spPos = i
+            Exit For
+        End If
+    Next i
+
+    ' Long word with no space — don't force-break mid-word
+    If spPos = 0 Then Exit Sub
+
+    ' No room for a new line
+    If lineCount >= MAXLINES Then Exit Sub
+
+    ' Split: left part stops before the space; right part continues after it
+    rightPart = Mid$(lines$(curRow), spPos + 1)
+    lines$(curRow) = Left$(lines$(curRow), spPos - 1)
+
+    ' Insert a new line after curRow, shifting everything else down
+    For j = lineCount To curRow + 1 Step -1
+        lines$(j + 1) = lines$(j)
+    Next j
+    lineCount = lineCount + 1
+    lines$(curRow + 1) = rightPart
+
+    ' Reposition cursor if it landed in the wrapped portion
+    If curCol > spPos Then
+        curCol = curCol - spPos
+        curRow = curRow + 1
+        If curRow > topLine + SCREENH - 1 Then
+            topLine = curRow - SCREENH + 1
+        End If
+    End If
+End Sub
+
+' ============================================================
 ' SUB: ClampCol
 ' ============================================================
 Sub ClampCol ()
@@ -868,11 +943,12 @@ Sub DrawScreen ()
     If docFile$ = "" Then fileLabel = "[untitled]" Else fileLabel = docFile$
     If dirty Then fileLabel = fileLabel + " *"
     bar = " " + fileLabel + "  Ln:" + LTrim$(Str$(curRow)) + "  Co:" + LTrim$(Str$(curCol))
+    If wrapMode Then bar = bar + "  WRAP@" + LTrim$(Str$(wrapCol))
     Print Left$(bar + Space$(SCREENW), SCREENW);
 
     ' ---- Row 24: Shortcut bar ----
     Locate 24, 1
-    Print Left$("  ^S=Save  ^O=Open  ^N=New  ^Q=Quit  ^Z=Undo  ^Y=Redo  ^X=Cut  ^V=Paste" + Space$(SCREENW), SCREENW);
+    Print Left$("  ^S=Save  ^O=Open  ^N=New  ^Q=Quit  ^Z=Undo  ^Y=Redo  ^X=Cut  ^V=Paste  ^W=Wrap" + Space$(SCREENW), SCREENW);
     Color 7, 0
 
     ' ---- Row 25: Message line ----
@@ -918,24 +994,73 @@ Sub ConfirmDiscard ()
 End Sub
 
 ' ============================================================
+' SUB: InputLine
+' Custom single-line input drawn explicitly at row 25.
+' Returns the trimmed string in result; sets cancelled=-1 on Esc.
+' ============================================================
+Sub InputLine (prompt As String, result As String, cancelled As Integer)
+    Dim buf As String
+    Dim k As Long
+    Dim maxInput As Integer
+
+    buf = ""
+    cancelled = 0
+    result = ""
+    maxInput = SCREENW - Len(prompt) - 1
+
+    Locate 25, 1
+    Color 14, 0
+    Print Left$(prompt + Space$(SCREENW), SCREENW);
+    Locate 25, Len(prompt) + 1
+    Color 7, 0
+
+    Do
+        k = _KeyHit
+        If k <> 0 Then
+            Select Case k
+                Case 13 ' Enter
+                    Exit Do
+                Case 27 ' Escape
+                    cancelled = -1
+                    Exit Do
+                Case 8 ' Backspace
+                    If Len(buf) > 0 Then
+                        buf = Left$(buf, Len(buf) - 1)
+                        Locate 25, Len(prompt) + 1
+                        Print Left$(buf + Space$(maxInput), maxInput);
+                        Locate 25, Len(prompt) + 1 + Len(buf)
+                    End If
+                Case 32 To 126 ' Printable
+                    If Len(buf) < maxInput Then
+                        buf = buf + Chr$(k)
+                        Locate 25, Len(prompt) + Len(buf)
+                        Print Chr$(k);
+                    End If
+            End Select
+        End If
+        _Limit 60
+    Loop
+
+    result = RTrim$(LTrim$(buf))
+    Color 7, 0
+End Sub
+
+' ============================================================
 ' SUB: DoSave
 ' ============================================================
 Sub DoSave ()
     Dim f As Integer
     Dim i As Integer
+    Dim fn As String
+    Dim inputCancelled As Integer
 
     If docFile$ = "" Then
-        Locate 25, 1
-        Color 14, 0
-        Print "Save as (Enter to cancel): ";
-        Color 7, 0
-        Line Input docFile$
-        docFile$ = RTrim$(LTrim$(docFile$))
-    End If
-
-    If docFile$ = "" Then
-        statusMsg$ = "Save cancelled."
-        Exit Sub
+        InputLine "Save as (Esc=cancel): ", fn, inputCancelled
+        If inputCancelled Or fn = "" Then
+            statusMsg$ = "Save cancelled."
+            Exit Sub
+        End If
+        docFile$ = fn
     End If
 
     f = FreeFile
@@ -956,15 +1081,10 @@ Sub DoOpen ()
     Dim fn As String
     Dim i As Integer
     Dim f As Integer
+    Dim inputCancelled As Integer
 
-    Locate 25, 1
-    Color 14, 0
-    Print "Open file (Enter to cancel): ";
-    Color 7, 0
-    Line Input fn
-    fn = RTrim$(LTrim$(fn))
-
-    If fn = "" Then
+    InputLine "Open file (Esc=cancel): ", fn, inputCancelled
+    If inputCancelled Or fn = "" Then
         statusMsg$ = "Open cancelled."
         Exit Sub
     End If
