@@ -64,7 +64,7 @@ To use the source code.
  
 - [x] Undo / redo
 - [ ] Find and replace
-- [ ] Word wrap
+- [x] Word wrap
 - [x] "Save first?" prompt on New and Quit
 ---
  
