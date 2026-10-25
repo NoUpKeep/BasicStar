@@ -1,7 +1,12 @@
+
 # BasicStar Word Processor
  
 A full-screen plain-text word processor written in QB64-PE, inspired by
 the classic word processors of the 1980s — particularly WordStar.
+
+BasicStar is an independent open-source project inspired by the user experience and keyboard-centric workflow of WordStar.
+
+**It is not affiliated with, endorsed by, or connected to the owners of the WordStar trademark.**
 
 [BasicStar Website](https://noupkeep.github.io/BasicStar/ "BasicStar Website")
  
@@ -38,6 +43,7 @@ the classic word processors of the 1980s — particularly WordStar.
 | Ctrl+V | Paste |
 | Ctrl+Z | Undo |
 | Ctrl+Y | Redo |
+| Ctrl+W | Toggle Word Wrap |
 | Ctrl+S | Save |
 | Ctrl+O | Open |
 | Ctrl+N | New document |
@@ -76,4 +82,4 @@ Developed in collaboration with [Claude](https://www.anthropic.com) by Anthropic
  
 ## Licence
  
-This project is released into the public domain. Do with it as you will.
+[GPL-3.0 license](https://github.com/NoUpKeep/BasicStar/tree/main?tab=GPL-3.0-1-ov-file#GPL-3.0-1-ov-file)
