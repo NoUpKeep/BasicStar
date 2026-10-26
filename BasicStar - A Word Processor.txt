@@ -1,0 +1,180 @@
+
+================================================================================
+BASICSTAR WORD PROCESSOR - User Manual
+================================================================================
+ 
+BasicStar is a full-screen plain-text word processor written in QB64-PE.
+It runs in an 80-column by 25-line text-mode screen.
+It is not affiliated with, endorsed by, or connected to the owners of the WordStar trademark. 
+--------------------------------------------------------------------------------
+THE SCREEN
+--------------------------------------------------------------------------------
+ 
+Rows 1-21 Editing area. Your document is displayed here.
+Row 22 Status bar. Shows filename, line/column, and WRAP indicator.
+Row 23 Shortcut bar (editing commands).
+Row 24 Shortcut bar (find and replace commands).
+Row 25 Message line. Prompts and status messages appear here.
+ 
+--------------------------------------------------------------------------------
+NAVIGATION
+--------------------------------------------------------------------------------
+ 
+Arrow keys Move the cursor one character or line at a time.
+Home Move to the start of the current line.
+End Move to the end of the current line.
+Page Up Scroll up one screenful.
+Page Down Scroll down one screenful.
+ 
+The document scrolls automatically when the cursor moves off the top or
+bottom of the editing area.
+ 
+
+--------------------------------------------------------------------------------
+EDITING
+--------------------------------------------------------------------------------
+ 
+Type any character Insert it at the cursor position.
+Enter Insert a new line, splitting the current line.
+Backspace Delete the character to the left of the cursor.
+At the start of a line, joins the line to the one above.
+Delete Delete the character under the cursor.
+At the end of a line, joins the next line to this one.
+ 
+The status bar shows an asterisk (*) after the filename whenever the
+document has unsaved changes.
+ 
+--------------------------------------------------------------------------------
+SELECTING TEXT
+--------------------------------------------------------------------------------
+ 
+Hold Shift while pressing any arrow key to select text. The selected
+region is highlighted in reverse video.
+ 
+Shift+Left / Right Extend selection one character at a time.
+Shift+Up / Down Extend selection one line at a time.
+ 
+Pressing Escape clears the selection without deleting anything.
+ 
+Typing any character, pressing Enter, Backspace, or Delete while a
+selection is active will delete the selection first.
+ 
+
+--------------------------------------------------------------------------------
+CUT, COPY AND PASTE
+--------------------------------------------------------------------------------
+ 
+Ctrl+C Copy the selected text to the clipboard.
+Ctrl+X Cut the selected text (copy then delete).
+Ctrl+V Paste the clipboard contents at the cursor position.
+ 
+The clipboard holds plain text. Newlines within the pasted text create
+new lines in the document. The clipboard is internal to BasicStar and
+is not shared with the operating system clipboard.
+ 
+--------------------------------------------------------------------------------
+UNDO AND REDO
+--------------------------------------------------------------------------------
+ 
+Ctrl+Z Undo the last edit.
+Ctrl+Y Redo the last undone edit.
+ 
+BasicStar keeps up to 30 levels of undo history. The history is cleared
+when you open or create a new document.
+ 
+
+--------------------------------------------------------------------------------
+FIND AND REPLACE
+--------------------------------------------------------------------------------
+ 
+Ctrl+F Find.
+You will be prompted to enter a search term. BasicStar
+searches forward from the cursor, wrapping round to the top
+of the document if necessary. The search is case-insensitive.
+Press Esc at the prompt to cancel.
+ 
+Ctrl+G Find Next.
+Repeat the last search from the current cursor position.
+No prompt is shown.
+ 
+Ctrl+R Replace All.
+You will be prompted for a search term and then a replacement.
+Every occurrence in the document is replaced in one operation.
+The replacement is undoable with a single Ctrl+Z.
+Press Esc at either prompt to cancel.
+ 
+At the Find prompt, pressing Enter without typing anything repeats the
+last search term.
+ 
+
+--------------------------------------------------------------------------------
+WORD WRAP
+--------------------------------------------------------------------------------
+ 
+Ctrl+W Toggle word wrap on or off.
+ 
+When word wrap is ON, BasicStar inserts a hard line break automatically
+when a word would extend beyond column 79. The wrap column is shown in
+the status bar (e.g. WRAP@79).
+ 
+Word wrap is OFF by default. It is intended for writing prose; for
+source code or structured text, leave it off.
+ 
+Note: word wrap inserts actual newlines into the document. It does not
+reflow existing paragraphs when you toggle it on.
+--------------------------------------------------------------------------------
+FILE OPERATIONS
+--------------------------------------------------------------------------------
+ 
+Ctrl+S Save.
+If the document has not been saved before, you will be
+prompted for a filename. Press Esc to cancel.
+If the document already has a name, it is saved silently.
+ 
+Ctrl+O Open.
+You will be prompted for a filename. If the file is not
+found, a message is shown and the current document is left
+unchanged. Press Esc to cancel.
+If the current document has unsaved changes, you will be
+asked whether to save first.
+ 
+Ctrl+N New document.
+Clears the editing area and starts a blank document.
+If the current document has unsaved changes, you will be
+asked whether to save first.
+Ctrl+Q Quit BasicStar.
+If the current document has unsaved changes, you will be
+asked whether to save first.
+ 
+When prompted to save before losing changes, the options are:
+ 
+Y Save the document (you will be prompted for a name if needed),
+then continue with the operation.
+N Discard changes and continue without saving.
+C Cancel - return to the document without doing anything.
+ 
+
+--------------------------------------------------------------------------------
+QUICK REFERENCE
+--------------------------------------------------------------------------------
+ 
+Navigation Arrows, Home, End, PgUp, PgDn
+Select Shift + any arrow key
+Copy Ctrl+C
+Cut Ctrl+X
+Paste Ctrl+V
+Undo Ctrl+Z
+Redo Ctrl+Y
+Find Ctrl+F
+Find Next Ctrl+G
+Replace All Ctrl+R
+Word Wrap Ctrl+W
+Save Ctrl+S
+Open Ctrl+O
+New Ctrl+N
+Quit Ctrl+Q
+ 
+================================================================================
+END OF MANUAL
+================================================================================
+
