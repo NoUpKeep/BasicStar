@@ -13,6 +13,9 @@
 '   Ctrl+Z                                  - undo
 '   Ctrl+Y                                  - redo
 '   Ctrl+W                                  - toggle word wrap
+'   Ctrl+F                                  - find
+'   Ctrl+G                                  - find next
+'   Ctrl+R                                  - replace (all)
 '   Ctrl+S                                  - save
 '   Ctrl+O                                  - open
 '   Ctrl+N                                  - new document
@@ -22,7 +25,7 @@
 $ExeIcon:'BasicStar.ico'
 
 Const MAXLINES = 5000
-Const SCREENH = 22 ' text display rows (rows 1-22)
+Const SCREENH = 21 ' text display rows (rows 1-21)
 Const SCREENW = 80 ' display columns
 Const MAXUNDO = 30 ' undo/redo stack depth
 
@@ -67,6 +70,10 @@ Dim Shared redoCurCol(1 To MAXUNDO) As Integer
 ' ---- Word wrap ----
 Dim Shared wrapMode As Integer ' -1 = on, 0 = off
 Dim Shared wrapCol As Integer ' right margin column
+
+' ---- Find / Replace ----
+Dim Shared lastSearch As String
+Dim Shared lastReplace As String
 
 ' ---- Initialise ----
 Screen 0
@@ -250,6 +257,9 @@ Do While running
                                 Else
                                     statusMsg$ = "Word wrap OFF"
                                 End If
+                            Case Asc("f"), Asc("F"): DoFind
+                            Case Asc("g"), Asc("G"): DoFindNext
+                            Case Asc("r"), Asc("R"): DoReplace
                             Case Asc("s"), Asc("S"): DoSave
                             Case Asc("o"), Asc("O"): DoOpen
                             Case Asc("n"), Asc("N")
@@ -937,18 +947,22 @@ Sub DrawScreen ()
         End If
     Next i
 
-    ' ---- Row 23: File info bar ----
+    ' ---- Row 22: File info bar ----
     Color 0, 7
-    Locate 23, 1
+    Locate 22, 1
     If docFile$ = "" Then fileLabel = "[untitled]" Else fileLabel = docFile$
     If dirty Then fileLabel = fileLabel + " *"
     bar = " " + fileLabel + "  Ln:" + LTrim$(Str$(curRow)) + "  Co:" + LTrim$(Str$(curCol))
     If wrapMode Then bar = bar + "  WRAP@" + LTrim$(Str$(wrapCol))
     Print Left$(bar + Space$(SCREENW), SCREENW);
 
-    ' ---- Row 24: Shortcut bar ----
-    Locate 24, 1
+    ' ---- Row 23: Shortcut bar (edit) ----
+    Locate 23, 1
     Print Left$("  ^S=Save  ^O=Open  ^N=New  ^Q=Quit  ^Z=Undo  ^Y=Redo  ^X=Cut  ^V=Paste  ^W=Wrap" + Space$(SCREENW), SCREENW);
+
+    ' ---- Row 24: Shortcut bar (find/replace) ----
+    Locate 24, 1
+    Print Left$("  ^F=Find  ^G=Find Next  ^R=Replace All" + Space$(SCREENW), SCREENW);
     Color 7, 0
 
     ' ---- Row 25: Message line ----
@@ -991,6 +1005,141 @@ Sub ConfirmDiscard ()
         End If
         _Limit 60
     Loop
+End Sub
+
+' ============================================================
+' INTERNAL: FindFrom
+' Search for lastSearch starting at (startRow, startCol).
+' Wraps around document.  Moves cursor to match; returns -1
+' if found or 0 if not found.  Caller updates statusMsg$.
+' ============================================================
+Function FindFrom% (startRow As Integer, startCol As Integer)
+    Dim r As Integer
+    Dim pos2 As Integer
+    Dim sc As Integer
+    Dim origRow As Integer
+
+    origRow = startRow
+    FindFrom% = 0
+
+    ' Search from startRow/startCol to end of document
+    For r = startRow To lineCount
+        If r = startRow Then sc = startCol Else sc = 1
+        pos2 = InStr(sc, LCase$(lines$(r)), LCase$(lastSearch))
+        If pos2 > 0 Then
+            curRow = r
+            curCol = pos2
+            FindFrom% = -1
+            Exit Function
+        End If
+    Next r
+
+    ' Wrap: search from top up to (and including) origRow
+    For r = 1 To origRow
+        pos2 = InStr(1, LCase$(lines$(r)), LCase$(lastSearch))
+        If pos2 > 0 Then
+            curRow = r
+            curCol = pos2
+            FindFrom% = -1
+            Exit Function
+        End If
+    Next r
+End Function
+
+' ============================================================
+' SUB: DoFind
+' ============================================================
+Sub DoFind ()
+    Dim term As String
+    Dim cancelled As Integer
+
+    InputLine "Find (Esc=cancel): ", term, cancelled
+    If cancelled Then statusMsg$ = "Find cancelled.": Exit Sub
+    If term <> "" Then lastSearch = term
+    If lastSearch = "" Then statusMsg$ = "Nothing to find.": Exit Sub
+
+    If FindFrom%(curRow, curCol + 1) Then
+        If curRow < topLine Then topLine = curRow
+        If curRow > topLine + SCREENH - 1 Then topLine = curRow - SCREENH + 1
+        statusMsg$ = "Found: " + lastSearch
+    Else
+        statusMsg$ = "Not found: " + lastSearch
+    End If
+End Sub
+
+' ============================================================
+' SUB: DoFindNext
+' ============================================================
+Sub DoFindNext ()
+    If lastSearch = "" Then
+        statusMsg$ = "No previous search."
+        Exit Sub
+    End If
+
+    If FindFrom%(curRow, curCol + 1) Then
+        If curRow < topLine Then topLine = curRow
+        If curRow > topLine + SCREENH - 1 Then topLine = curRow - SCREENH + 1
+        statusMsg$ = "Found: " + lastSearch
+    Else
+        statusMsg$ = "Not found: " + lastSearch
+    End If
+End Sub
+
+' ============================================================
+' SUB: DoReplace
+' Replace All: replaces every occurrence of the search term
+' throughout the document.  One undoable action.
+' ============================================================
+Sub DoReplace ()
+    Dim sterm As String
+    Dim rterm As String
+    Dim cancelled As Integer
+    Dim r As Integer
+    Dim pos3 As Integer
+    Dim count As Integer
+    Dim searchFrom As Integer
+
+    InputLine "Find (Esc=cancel): ", sterm, cancelled
+    If cancelled Then statusMsg$ = "Replace cancelled.": Exit Sub
+    If sterm <> "" Then lastSearch = sterm
+    If lastSearch = "" Then statusMsg$ = "Nothing to find.": Exit Sub
+
+    InputLine "Replace with (Esc=cancel): ", rterm, cancelled
+    If cancelled Then statusMsg$ = "Replace cancelled.": Exit Sub
+    lastReplace = rterm
+
+    ' Save entire document for undo (one action, whole document)
+    PushUndoRange 1, lineCount
+
+    count = 0
+    For r = 1 To lineCount
+        searchFrom = 1
+        Do
+            pos3 = InStr(searchFrom, LCase$(lines$(r)), LCase$(lastSearch))
+            If pos3 = 0 Then Exit Do
+            lines$(r) = Left$(lines$(r), pos3 - 1) + lastReplace + Mid$(lines$(r), pos3 + Len(lastSearch))
+            count = count + 1
+            searchFrom = pos3 + Len(lastReplace)
+            If Len(lastReplace) = 0 Then searchFrom = searchFrom + 1
+            If searchFrom > Len(lines$(r)) + 1 Then Exit Do
+        Loop
+    Next r
+
+    If undoTop > 0 And Not undoSuspend Then
+        undoLineCount(undoTop) = lineCount
+    End If
+
+    If count > 0 Then
+        dirty = -1
+        ' Move cursor to first remaining match (or keep position if none)
+        If FindFrom%(1, 1) Then
+            If curRow < topLine Then topLine = curRow
+            If curRow > topLine + SCREENH - 1 Then topLine = curRow - SCREENH + 1
+        End If
+        statusMsg$ = "Replaced " + LTrim$(Str$(count)) + " occurrence(s)."
+    Else
+        statusMsg$ = "Not found: " + lastSearch
+    End If
 End Sub
 
 ' ============================================================
