@@ -1,4 +1,5 @@
 
+
 # BasicStar Word Processor
  
 A full-screen plain-text word processor written in QB64-PE, inspired by
@@ -44,6 +45,9 @@ BasicStar is an independent open-source project inspired by the user experience 
 | Ctrl+Z | Undo |
 | Ctrl+Y | Redo |
 | Ctrl+W | Toggle Word Wrap |
+| Ctrl+F | Search Term |
+| Ctrl+G | Repeat Last Search Word |
+| Ctrl+R | Prompts Find Term Then Replacement |
 | Ctrl+S | Save |
 | Ctrl+O | Open |
 | Ctrl+N | New document |
@@ -68,8 +72,8 @@ To use the source code.
  
 ## Roadmap
  
-- [x] Undo / redo
-- [ ] Find and replace
+- [x] Undo/redo
+- [x] Find and replace
 - [x] Word wrap
 - [x] "Save first?" prompt on New and Quit
 ---
